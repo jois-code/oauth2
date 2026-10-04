@@ -244,6 +244,7 @@ export class AcademyClient {
     try {
       const resp = await this.client.post(DISPATCHER_URL, formData, {
         headers,
+        validateStatus: () => true,
       });
 
       if (resp.status !== 200) {

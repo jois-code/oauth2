@@ -390,6 +390,7 @@ describe('PESU Academy Client & Profile Mapping', () => {
           mobileappauthenticationtoken: 'tok',
           authorization: 'Bearer acc',
         },
+        validateStatus: expect.any(Function),
       });
     });
 
