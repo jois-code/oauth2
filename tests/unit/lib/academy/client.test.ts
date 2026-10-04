@@ -48,9 +48,20 @@ describe('PESU Academy Client & Profile Mapping', () => {
       expect(profile.program).toBe('Bachelor of Technology');
       expect(profile.branch).toBe('Computer Science and Engineering');
       expect(profile.semester).toBe('Sem-6');
+      // campus deduced from SRN (profileDetails.loginId), not PRN (mobileObj.loginId)
       expect(profile.campus).toBe('RR');
       expect(profile.email).toBe('john@pesu.pes.edu');
       expect(profile.phone).toBe('9876543210');
+    });
+
+    it('deduces campus from SRN rather than PRN', () => {
+      // PRN has PES2 (EC campus), SRN has PES1 (RR campus) — campus should match SRN
+      const mobileObj = { loginId: 'PES2UG20CS001', name: 'Test' };
+      const profileDetails = { loginId: 'PES1202000001' };
+      const profile = mapProfile(mobileObj, 'user', profileDetails);
+      expect(profile.prn).toBe('PES2UG20CS001');
+      expect(profile.srn).toBe('PES1202000001');
+      expect(profile.campus).toBe('RR'); // from SRN, not EC from PRN
     });
 
     it('falls back to raw program and branch when not present in mapping table', () => {
@@ -304,7 +315,7 @@ describe('PESU Academy Client & Profile Mapping', () => {
       const res2 = await client.login('PES1UG20CS001', 'pass');
       expect(res2.profile.name).toBe('Test Student');
 
-      // 3. Dispatcher call fails / throws
+      // 3. Dispatcher call fails / throws (no accessToken — dispatcher still called)
       mockPost
         .mockResolvedValueOnce({
           status: 200,

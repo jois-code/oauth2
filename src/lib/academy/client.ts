@@ -141,7 +141,7 @@ export function mapProfile(
     branch,
     semester: semesterFromClass(className, batchClass),
     section: sectionName,
-    campus: campusFromPrn(prnStr),
+    campus: campusFromPrn(srn),
     email: emailRaw,
     phone: phoneRaw,
   };
@@ -212,8 +212,8 @@ export class AcademyClient {
     const userId = mobileObj.userId ? String(mobileObj.userId) : null;
 
     let profileDetails: Record<string, unknown> | null = null;
-    if (token && userId && accessToken) {
-      profileDetails = await this.fetchProfileDetails(token, accessToken, userId);
+    if (token && userId) {
+      profileDetails = await this.fetchProfileDetails(token, accessToken);
     }
 
     const profile = mapProfile(mobileObj, username, profileDetails);
@@ -229,21 +229,23 @@ export class AcademyClient {
 
   private async fetchProfileDetails(
     token: string,
-    accessToken: string,
-    userId: string
+    accessToken: string | null
   ): Promise<Record<string, unknown> | null> {
     const formData = new FormData();
     formData.append('action', DISPATCHER_ACTION_ADMIN);
     formData.append('mode', DISPATCHER_MODE_SEARCH_BY_SRN);
-    formData.append('userId', userId);
-    formData.append('searchUserId', userId);
+    formData.append('menuId', '11172');
+
+    const headers: Record<string, string> = {
+      mobileappauthenticationtoken: token,
+    };
+    if (accessToken) {
+      headers['authorization'] = `Bearer ${accessToken}`;
+    }
 
     try {
       const resp = await this.client.post(DISPATCHER_URL, formData, {
-        headers: {
-          mobileappauthenticationtoken: token,
-          authorization: `Bearer ${accessToken}`,
-        },
+        headers,
       });
 
       if (resp.status !== 200) return null;
