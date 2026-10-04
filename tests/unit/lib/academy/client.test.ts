@@ -387,8 +387,9 @@ describe('PESU Academy Client & Profile Mapping', () => {
           data: 'invalid json {{{',
         });
 
-      const res2 = await client.login('PES1UG20CS001', 'pass');
-      expect(res2.profile.name).toBe('Test Student');
+      await expect(client.login('PES1UG20CS001', 'pass')).rejects.toThrow(
+        'Invalid dispatcher response format'
+      );
 
       // 3. Dispatcher call fails / throws (no accessToken — dispatcher still called)
       mockPost.mockClear();
@@ -407,14 +408,15 @@ describe('PESU Academy Client & Profile Mapping', () => {
         })
         .mockRejectedValueOnce(new Error('Network failure'));
 
-      const res3 = await client.login('PES1UG20CS001', 'pass');
+      await expect(client.login('PES1UG20CS001', 'pass')).rejects.toThrow(
+        'Dispatcher connection failed: Network failure'
+      );
       expect(mockPost).toHaveBeenCalledTimes(2);
       expect(mockPost).toHaveBeenNthCalledWith(2, DISPATCHER_URL, expect.any(FormData), {
         headers: {
           mobileappauthenticationtoken: 'tok',
         },
       });
-      expect(res3.profile.name).toBe('Test Student');
     });
 
     it('handles non-Error rejection and non-200 HTTP status', async () => {
@@ -473,8 +475,9 @@ describe('PESU Academy Client & Profile Mapping', () => {
         })
         .mockRejectedValueOnce(new Error('Dispatcher network timeout'));
 
-      const resCatch = await client.login('PES1UG20CS001', 'pass');
-      expect(resCatch.profile.name).toBe('Test Student');
+      await expect(client.login('PES1UG20CS001', 'pass')).rejects.toThrow(
+        'Dispatcher connection failed: Dispatcher network timeout'
+      );
 
       // Dispatcher returns status !== 200 (e.g. 500)
       mockPost
@@ -496,9 +499,9 @@ describe('PESU Academy Client & Profile Mapping', () => {
           data: {},
         });
 
-      const resStatus500 = await client.login('PES1UG20CS001', 'pass');
-      expect(resStatus500.session.accessToken).toBe('top-level-token');
-      expect(resStatus500.profile.name).toBe('Test Student');
+      await expect(client.login('PES1UG20CS001', 'pass')).rejects.toThrow(
+        'Dispatcher failed: HTTP 500'
+      );
 
       // Dispatcher returns SUCCESS but STUDENT_PHOTO is falsy
       mockPost

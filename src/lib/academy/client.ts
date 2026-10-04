@@ -1,4 +1,4 @@
-import axios, { AxiosInstance } from 'axios';
+import axios, { type AxiosInstance } from 'axios';
 import { wrapper } from 'axios-cookiejar-support';
 import { CookieJar } from 'tough-cookie';
 
@@ -248,24 +248,30 @@ export class AcademyClient {
         headers,
       });
 
-      if (resp.status !== 200) return null;
+      if (resp.status !== 200) {
+        throw new AcademyAuthError(`Dispatcher failed: HTTP ${resp.status}`);
+      }
 
       let data = resp.data;
       if (typeof data === 'string') {
         try {
           data = JSON.parse(data);
         } catch {
-          return null;
+          throw new AcademyAuthError('Invalid dispatcher response format');
         }
       }
 
       if (typeof data?.MESSAGE === 'string' && data.MESSAGE.includes('SUCCESS')) {
         return (data.STUDENT_PHOTO as Record<string, unknown>) || null;
       }
-    } catch {
+      
+      // If we got a 200 but no success message, it might not be a system outage,
+      // but we shouldn't fail the whole login if they just don't have a photo/record here.
       return null;
+    } catch (err) {
+      if (err instanceof AcademyAuthError) throw err;
+      const msg = err instanceof Error ? err.message : String(err);
+      throw new AcademyAuthError(`Dispatcher connection failed: ${msg}`);
     }
-
-    return null;
   }
 }
