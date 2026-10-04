@@ -145,7 +145,7 @@ describe('PESU Academy Client & Profile Mapping', () => {
       expect(dispOptions.headers.authorization).toBe('Bearer token-abc');
     });
 
-    it('authenticates successfully and enriches profile without accessToken in login response', async () => {
+    it('authenticates successfully but skips profile enrichment without accessToken in login response', async () => {
       const mockPost = vi.fn();
 
       // First call to auth: response does not contain accessToken
@@ -165,46 +165,18 @@ describe('PESU Academy Client & Profile Mapping', () => {
         },
       });
 
-      // Second call to dispatcher: profile enrichment succeeds
-      mockPost.mockResolvedValueOnce({
-        status: 200,
-        data: {
-          MESSAGE: 'SUCCESS',
-          STUDENT_PHOTO: {
-            nameAsInSSLC: 'TEST STUDENT OFFICIAL',
-            loginId: 'PES1202000001',
-            email: 'test@pes.edu',
-          },
-        },
-      });
-
       const client = new AcademyClient({ post: mockPost } as unknown as AxiosInstance);
       const result = await client.login('PES1UG20CS001', 'password123');
 
-      // Verify dispatcher was invoked
-      expect(mockPost).toHaveBeenCalledTimes(2);
+      // Verify dispatcher was skipped because accessToken is missing
+      expect(mockPost).toHaveBeenCalledTimes(1);
       expect(mockPost).toHaveBeenNthCalledWith(1, LOGIN_URL, expect.any(FormData));
 
-      const [dispatcherUrl, dispatcherFormData, dispatcherOptions] = mockPost.mock.calls[1];
-      expect(dispatcherUrl).toBe(DISPATCHER_URL);
-      expect(dispatcherFormData).toBeInstanceOf(FormData);
-      expect((dispatcherFormData as FormData).get('action')).toBe('27');
-      expect((dispatcherFormData as FormData).get('mode')).toBe('1');
-      expect((dispatcherFormData as FormData).get('menuId')).toBe('11172');
-      expect((dispatcherFormData as FormData).get('userId')).toBeNull();
-      expect((dispatcherFormData as FormData).get('searchUserId')).toBeNull();
-
-      // Verify headers: mobileappauthenticationtoken included, authorization header omitted
-      expect(dispatcherOptions.headers).toEqual({
-        mobileappauthenticationtoken: 'auth-token-xyz',
-      });
-      expect(dispatcherOptions.headers.authorization).toBeUndefined();
-
-      // Verify profile is enriched and session has null accessToken
-      expect(result.profile.name).toBe('TEST STUDENT OFFICIAL');
+      // Verify profile is NOT enriched (fallback from mobileObj) and session has null accessToken
+      expect(result.profile.name).toBe('Test Student');
       expect(result.profile.prn).toBe('PES1UG20CS001');
-      expect(result.profile.srn).toBe('PES1202000001');
-      expect(result.profile.campus).toBe('RR');
+      expect(result.profile.srn).toBe('PES1UG20CS001'); // Falls back to PRN
+      expect(result.profile.campus).toBe('RR'); // Extracted from SRN (which is PRN)
       expect(result.session.accessToken).toBeNull();
       expect(result.session.userId).toBe('12345');
     });
@@ -403,6 +375,7 @@ describe('PESU Academy Client & Profile Mapping', () => {
               loginId: 'PES1UG20CS001',
               name: 'Test Student',
               userId: '123',
+              accessToken: 'acc',
             },
           },
         })
@@ -415,6 +388,7 @@ describe('PESU Academy Client & Profile Mapping', () => {
       expect(mockPost).toHaveBeenNthCalledWith(2, DISPATCHER_URL, expect.any(FormData), {
         headers: {
           mobileappauthenticationtoken: 'tok',
+          authorization: 'Bearer acc',
         },
       });
     });

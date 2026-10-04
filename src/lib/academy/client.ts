@@ -212,7 +212,7 @@ export class AcademyClient {
     const userId = mobileObj.userId ? String(mobileObj.userId) : null;
 
     let profileDetails: Record<string, unknown> | null = null;
-    if (token && userId) {
+    if (token && userId && accessToken) {
       profileDetails = await this.fetchProfileDetails(token, accessToken);
     }
 
@@ -229,7 +229,7 @@ export class AcademyClient {
 
   private async fetchProfileDetails(
     token: string,
-    accessToken: string | null
+    accessToken: string
   ): Promise<Record<string, unknown> | null> {
     const formData = new FormData();
     formData.append('action', DISPATCHER_ACTION_ADMIN);
@@ -238,10 +238,8 @@ export class AcademyClient {
 
     const headers: Record<string, string> = {
       mobileappauthenticationtoken: token,
+      authorization: `Bearer ${accessToken}`,
     };
-    if (accessToken) {
-      headers['authorization'] = `Bearer ${accessToken}`;
-    }
 
     try {
       const resp = await this.client.post(DISPATCHER_URL, formData, {
