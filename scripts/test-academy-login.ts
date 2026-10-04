@@ -3,9 +3,12 @@
  * Manual test for PESU Academy login + dispatcher profile enrichment.
  *
  * Usage:
- *   npx tsx scripts/test-academy-login.ts <username> <password>
+ *   npx tsx scripts/test-academy-login.ts [username]
  *
- * No .env setup required — credentials are passed as CLI arguments.
+ * Password can be provided securely via:
+ *   1. Interactive masked prompt (recommended)
+ *   2. ACADEMY_PASSWORD environment variable
+ *   3. CLI argument: npx tsx scripts/test-academy-login.ts <username> <password> (warns about history exposure)
  *
  * What it verifies:
  *  - Login succeeds and returns a token + userId
@@ -15,16 +18,99 @@
  *  - Campus is deduced from the SRN, not the PRN
  */
 
+import readline from 'node:readline';
 import { AcademyClient } from '../src/lib/academy/client.js';
 
-const [username, password] = process.argv.slice(2);
+async function getUsername(): Promise<string> {
+  if (process.argv[2]) {
+    return process.argv[2];
+  }
+  if (process.env.ACADEMY_USERNAME) {
+    return process.env.ACADEMY_USERNAME;
+  }
 
-if (!username || !password) {
-  console.error('Usage: npx tsx scripts/test-academy-login.ts <username> <password>');
-  process.exit(1);
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+
+  return new Promise((resolve) => {
+    rl.question('Username (SRN/PRN): ', (answer) => {
+      rl.close();
+      resolve(answer.trim());
+    });
+  });
+}
+
+async function getPassword(): Promise<string> {
+  if (process.env.ACADEMY_PASSWORD) {
+    return process.env.ACADEMY_PASSWORD;
+  }
+  if (process.argv[3]) {
+    console.warn('⚠️  Warning: Passing passwords via CLI arguments exposes them in shell history and process listings.');
+    return process.argv[3];
+  }
+
+  const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout,
+  });
+
+  if (!process.stdin.isTTY) {
+    return new Promise((resolve) => {
+      rl.question('Password: ', (answer) => {
+        rl.close();
+        resolve(answer.trim());
+      });
+    });
+  }
+
+  // Masked input for interactive TTY
+  return new Promise((resolve) => {
+    process.stdout.write('Password: ');
+    const stdin = process.stdin;
+    let password = '';
+
+    const onData = (chunk: Buffer) => {
+      const str = chunk.toString('utf-8');
+      for (const char of str) {
+        if (char === '\r' || char === '\n' || char === '\u0004') {
+          stdin.removeListener('data', onData);
+          stdin.setRawMode(false);
+          stdin.pause();
+          process.stdout.write('\n');
+          rl.close();
+          resolve(password);
+          return;
+        } else if (char === '\u0003') {
+          // Ctrl+C
+          process.exit(1);
+        } else if (char === '\u007f' || char === '\b') {
+          // Backspace
+          if (password.length > 0) {
+            password = password.slice(0, -1);
+          }
+        } else {
+          password += char;
+        }
+      }
+    };
+
+    stdin.setRawMode(true);
+    stdin.resume();
+    stdin.on('data', onData);
+  });
 }
 
 async function main() {
+  const username = await getUsername();
+  const password = await getPassword();
+
+  if (!username || !password) {
+    console.error('Error: Username and password are required.');
+    process.exit(1);
+  }
+
   console.log(`\n🔐 Logging in as: ${username}\n`);
   const client = new AcademyClient();
 
@@ -34,8 +120,8 @@ async function main() {
     console.log('✅ Login successful!\n');
 
     console.log('── Session ──');
-    console.log(`  token          : ${result.session.token ? result.session.token.slice(0, 20) + '…' : '(empty)'}`);
-    console.log(`  accessToken    : ${result.session.accessToken ?? '(null — expected with new API)'}`);
+    console.log(`  token          : ${result.session.token ? result.session.token.slice(0, 10) + '… (masked)' : '(empty)'}`);
+    console.log(`  accessToken    : ${result.session.accessToken ? result.session.accessToken.slice(0, 10) + '… (masked)' : '(null — expected with new API)'}`);
     console.log(`  userId         : ${result.session.userId}`);
     console.log();
 
@@ -76,8 +162,10 @@ async function main() {
 
     if (issues === 0) {
       console.log('🎉 All checks passed — bug is fixed!');
+      process.exit(0);
     } else {
-      console.log(`\n❌ ${issues} issue(s) detected — see warnings above.`);
+      console.error(`\n❌ ${issues} issue(s) detected — see warnings above.`);
+      process.exit(1);
     }
   } catch (err) {
     console.error(`\n❌ Login failed: ${err instanceof Error ? err.message : err}`);

@@ -5,6 +5,8 @@ import {
   mapProfile,
   campusFromPrn,
   semesterFromClass,
+  LOGIN_URL,
+  DISPATCHER_URL,
 } from '@/lib/academy/client';
 
 describe('PESU Academy Client & Profile Mapping', () => {
@@ -131,6 +133,79 @@ describe('PESU Academy Client & Profile Mapping', () => {
       expect(result.profile.prn).toBe('PES1UG20CS001');
       expect(result.profile.srn).toBe('PES1202000001');
       expect(result.session.token).toBe('auth-token-xyz');
+      expect(result.session.userId).toBe('12345');
+      expect(result.session.accessToken).toBe('token-abc');
+
+      // Verify dispatcher was invoked with Bearer token and menuId
+      expect(mockPost).toHaveBeenCalledTimes(2);
+      expect(mockPost).toHaveBeenNthCalledWith(1, LOGIN_URL, expect.any(FormData));
+      const [dispUrl, dispFormData, dispOptions] = mockPost.mock.calls[1];
+      expect(dispUrl).toBe(DISPATCHER_URL);
+      expect((dispFormData as FormData).get('menuId')).toBe('11172');
+      expect(dispOptions.headers.authorization).toBe('Bearer token-abc');
+    });
+
+    it('authenticates successfully and enriches profile without accessToken in login response', async () => {
+      const mockPost = vi.fn();
+
+      // First call to auth: response does not contain accessToken
+      mockPost.mockResolvedValueOnce({
+        status: 200,
+        headers: {
+          mobileappauthenticationtoken: 'auth-token-xyz',
+        },
+        data: {
+          mobileJsonObject: {
+            login: 'SUCCESS',
+            loginId: 'PES1UG20CS001',
+            name: 'Test Student',
+            userId: '12345',
+            // accessToken is absent
+          },
+        },
+      });
+
+      // Second call to dispatcher: profile enrichment succeeds
+      mockPost.mockResolvedValueOnce({
+        status: 200,
+        data: {
+          MESSAGE: 'SUCCESS',
+          STUDENT_PHOTO: {
+            nameAsInSSLC: 'TEST STUDENT OFFICIAL',
+            loginId: 'PES1202000001',
+            email: 'test@pes.edu',
+          },
+        },
+      });
+
+      const client = new AcademyClient({ post: mockPost } as unknown as AxiosInstance);
+      const result = await client.login('PES1UG20CS001', 'password123');
+
+      // Verify dispatcher was invoked
+      expect(mockPost).toHaveBeenCalledTimes(2);
+      expect(mockPost).toHaveBeenNthCalledWith(1, LOGIN_URL, expect.any(FormData));
+
+      const [dispatcherUrl, dispatcherFormData, dispatcherOptions] = mockPost.mock.calls[1];
+      expect(dispatcherUrl).toBe(DISPATCHER_URL);
+      expect(dispatcherFormData).toBeInstanceOf(FormData);
+      expect((dispatcherFormData as FormData).get('action')).toBe('27');
+      expect((dispatcherFormData as FormData).get('mode')).toBe('1');
+      expect((dispatcherFormData as FormData).get('menuId')).toBe('11172');
+      expect((dispatcherFormData as FormData).get('userId')).toBeNull();
+      expect((dispatcherFormData as FormData).get('searchUserId')).toBeNull();
+
+      // Verify headers: mobileappauthenticationtoken included, authorization header omitted
+      expect(dispatcherOptions.headers).toEqual({
+        mobileappauthenticationtoken: 'auth-token-xyz',
+      });
+      expect(dispatcherOptions.headers.authorization).toBeUndefined();
+
+      // Verify profile is enriched and session has null accessToken
+      expect(result.profile.name).toBe('TEST STUDENT OFFICIAL');
+      expect(result.profile.prn).toBe('PES1UG20CS001');
+      expect(result.profile.srn).toBe('PES1202000001');
+      expect(result.profile.campus).toBe('RR');
+      expect(result.session.accessToken).toBeNull();
       expect(result.session.userId).toBe('12345');
     });
 
@@ -316,6 +391,7 @@ describe('PESU Academy Client & Profile Mapping', () => {
       expect(res2.profile.name).toBe('Test Student');
 
       // 3. Dispatcher call fails / throws (no accessToken — dispatcher still called)
+      mockPost.mockClear();
       mockPost
         .mockResolvedValueOnce({
           status: 200,
@@ -332,6 +408,12 @@ describe('PESU Academy Client & Profile Mapping', () => {
         .mockRejectedValueOnce(new Error('Network failure'));
 
       const res3 = await client.login('PES1UG20CS001', 'pass');
+      expect(mockPost).toHaveBeenCalledTimes(2);
+      expect(mockPost).toHaveBeenNthCalledWith(2, DISPATCHER_URL, expect.any(FormData), {
+        headers: {
+          mobileappauthenticationtoken: 'tok',
+        },
+      });
       expect(res3.profile.name).toBe('Test Student');
     });
 
