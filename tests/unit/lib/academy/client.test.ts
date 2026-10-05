@@ -5,6 +5,8 @@ import {
   mapProfile,
   campusFromPrn,
   semesterFromClass,
+  LOGIN_URL,
+  DISPATCHER_URL,
 } from '@/lib/academy/client';
 
 describe('PESU Academy Client & Profile Mapping', () => {
@@ -48,9 +50,20 @@ describe('PESU Academy Client & Profile Mapping', () => {
       expect(profile.program).toBe('Bachelor of Technology');
       expect(profile.branch).toBe('Computer Science and Engineering');
       expect(profile.semester).toBe('Sem-6');
+      // campus deduced from SRN (profileDetails.loginId), not PRN (mobileObj.loginId)
       expect(profile.campus).toBe('RR');
       expect(profile.email).toBe('john@pesu.pes.edu');
       expect(profile.phone).toBe('9876543210');
+    });
+
+    it('deduces campus from SRN rather than PRN', () => {
+      // PRN has PES2 (EC campus), SRN has PES1 (RR campus) — campus should match SRN
+      const mobileObj = { loginId: 'PES2UG20CS001', name: 'Test' };
+      const profileDetails = { loginId: 'PES1202000001' };
+      const profile = mapProfile(mobileObj, 'user', profileDetails);
+      expect(profile.prn).toBe('PES2UG20CS001');
+      expect(profile.srn).toBe('PES1202000001');
+      expect(profile.campus).toBe('RR'); // from SRN, not EC from PRN
     });
 
     it('falls back to raw program and branch when not present in mapping table', () => {
@@ -120,6 +133,51 @@ describe('PESU Academy Client & Profile Mapping', () => {
       expect(result.profile.prn).toBe('PES1UG20CS001');
       expect(result.profile.srn).toBe('PES1202000001');
       expect(result.session.token).toBe('auth-token-xyz');
+      expect(result.session.userId).toBe('12345');
+      expect(result.session.accessToken).toBe('token-abc');
+
+      // Verify dispatcher was invoked with Bearer token and menuId
+      expect(mockPost).toHaveBeenCalledTimes(2);
+      expect(mockPost).toHaveBeenNthCalledWith(1, LOGIN_URL, expect.any(FormData));
+      const [dispUrl, dispFormData, dispOptions] = mockPost.mock.calls[1];
+      expect(dispUrl).toBe(DISPATCHER_URL);
+      expect((dispFormData as FormData).get('menuId')).toBe('11172');
+      expect(dispOptions.headers.authorization).toBe('Bearer token-abc');
+    });
+
+    it('authenticates successfully but skips profile enrichment without accessToken in login response', async () => {
+      const mockPost = vi.fn();
+
+      // First call to auth: response does not contain accessToken
+      mockPost.mockResolvedValueOnce({
+        status: 200,
+        headers: {
+          mobileappauthenticationtoken: 'auth-token-xyz',
+        },
+        data: {
+          mobileJsonObject: {
+            login: 'SUCCESS',
+            loginId: 'PES1UG20CS001',
+            name: 'Test Student',
+            userId: '12345',
+            // accessToken is absent
+          },
+        },
+      });
+
+      const client = new AcademyClient({ post: mockPost } as unknown as AxiosInstance);
+      const result = await client.login('PES1UG20CS001', 'password123');
+
+      // Verify dispatcher was skipped because accessToken is missing
+      expect(mockPost).toHaveBeenCalledTimes(1);
+      expect(mockPost).toHaveBeenNthCalledWith(1, LOGIN_URL, expect.any(FormData));
+
+      // Verify profile is NOT enriched (fallback from mobileObj) and session has null accessToken
+      expect(result.profile.name).toBe('Test Student');
+      expect(result.profile.prn).toBe('PES1UG20CS001');
+      expect(result.profile.srn).toBe('PES1UG20CS001'); // Falls back to PRN
+      expect(result.profile.campus).toBe('RR'); // Extracted from SRN (which is PRN)
+      expect(result.session.accessToken).toBeNull();
       expect(result.session.userId).toBe('12345');
     });
 
@@ -301,10 +359,12 @@ describe('PESU Academy Client & Profile Mapping', () => {
           data: 'invalid json {{{',
         });
 
-      const res2 = await client.login('PES1UG20CS001', 'pass');
-      expect(res2.profile.name).toBe('Test Student');
+      await expect(client.login('PES1UG20CS001', 'pass')).rejects.toThrow(
+        'Invalid dispatcher response format'
+      );
 
-      // 3. Dispatcher call fails / throws
+      // 3. Dispatcher call fails / throws (no accessToken — dispatcher still called)
+      mockPost.mockClear();
       mockPost
         .mockResolvedValueOnce({
           status: 200,
@@ -315,13 +375,23 @@ describe('PESU Academy Client & Profile Mapping', () => {
               loginId: 'PES1UG20CS001',
               name: 'Test Student',
               userId: '123',
+              accessToken: 'acc',
             },
           },
         })
         .mockRejectedValueOnce(new Error('Network failure'));
 
-      const res3 = await client.login('PES1UG20CS001', 'pass');
-      expect(res3.profile.name).toBe('Test Student');
+      await expect(client.login('PES1UG20CS001', 'pass')).rejects.toThrow(
+        'Dispatcher connection failed: Network failure'
+      );
+      expect(mockPost).toHaveBeenCalledTimes(2);
+      expect(mockPost).toHaveBeenNthCalledWith(2, DISPATCHER_URL, expect.any(FormData), {
+        headers: {
+          mobileappauthenticationtoken: 'tok',
+          authorization: 'Bearer acc',
+        },
+        validateStatus: expect.any(Function),
+      });
     });
 
     it('handles non-Error rejection and non-200 HTTP status', async () => {
@@ -380,8 +450,9 @@ describe('PESU Academy Client & Profile Mapping', () => {
         })
         .mockRejectedValueOnce(new Error('Dispatcher network timeout'));
 
-      const resCatch = await client.login('PES1UG20CS001', 'pass');
-      expect(resCatch.profile.name).toBe('Test Student');
+      await expect(client.login('PES1UG20CS001', 'pass')).rejects.toThrow(
+        'Dispatcher connection failed: Dispatcher network timeout'
+      );
 
       // Dispatcher returns status !== 200 (e.g. 500)
       mockPost
@@ -403,9 +474,9 @@ describe('PESU Academy Client & Profile Mapping', () => {
           data: {},
         });
 
-      const resStatus500 = await client.login('PES1UG20CS001', 'pass');
-      expect(resStatus500.session.accessToken).toBe('top-level-token');
-      expect(resStatus500.profile.name).toBe('Test Student');
+      await expect(client.login('PES1UG20CS001', 'pass')).rejects.toThrow(
+        'Dispatcher failed: HTTP 500'
+      );
 
       // Dispatcher returns SUCCESS but STUDENT_PHOTO is falsy
       mockPost
