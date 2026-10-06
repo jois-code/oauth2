@@ -145,7 +145,7 @@ describe('PESU Academy Client & Profile Mapping', () => {
       expect(dispOptions.headers.authorization).toBe('Bearer token-abc');
     });
 
-    it('authenticates successfully but skips profile enrichment without accessToken in login response', async () => {
+    it('throws AcademyAuthError when login response is missing accessToken', async () => {
       const mockPost = vi.fn();
 
       // First call to auth: response does not contain accessToken
@@ -166,19 +166,11 @@ describe('PESU Academy Client & Profile Mapping', () => {
       });
 
       const client = new AcademyClient({ post: mockPost } as unknown as AxiosInstance);
-      const result = await client.login('PES1UG20CS001', 'password123');
-
-      // Verify dispatcher was skipped because accessToken is missing
+      await expect(client.login('PES1UG20CS001', 'password123')).rejects.toThrow(
+        'Incomplete session metadata from authentication'
+      );
       expect(mockPost).toHaveBeenCalledTimes(1);
       expect(mockPost).toHaveBeenNthCalledWith(1, LOGIN_URL, expect.any(FormData));
-
-      // Verify profile is NOT enriched (fallback from mobileObj) and session has null accessToken
-      expect(result.profile.name).toBe('Test Student');
-      expect(result.profile.prn).toBe('PES1UG20CS001');
-      expect(result.profile.srn).toBe('PES1UG20CS001'); // Falls back to PRN
-      expect(result.profile.campus).toBe('RR'); // Extracted from SRN (which is PRN)
-      expect(result.session.accessToken).toBeNull();
-      expect(result.session.userId).toBe('12345');
     });
 
     it('handles camelCase mobileAppAuthenticationToken header correctly', async () => {
@@ -211,7 +203,7 @@ describe('PESU Academy Client & Profile Mapping', () => {
       expect(result.session.token).toBe('camel-case-auth-token');
     });
 
-    it('handles response without headers or token falling back to empty string', async () => {
+    it('throws AcademyAuthError when response is missing authentication token', async () => {
       const mockPost = vi.fn();
       mockPost.mockResolvedValueOnce({
         status: 200,
@@ -228,8 +220,32 @@ describe('PESU Academy Client & Profile Mapping', () => {
       });
 
       const client = new AcademyClient({ post: mockPost } as unknown as AxiosInstance);
-      const result = await client.login('PES1UG20CS001', 'password123');
-      expect(result.session.token).toBe('');
+      await expect(client.login('PES1UG20CS001', 'password123')).rejects.toThrow(
+        'Incomplete session metadata from authentication'
+      );
+    });
+
+    it('throws AcademyAuthError when response is missing userId', async () => {
+      const mockPost = vi.fn();
+      mockPost.mockResolvedValueOnce({
+        status: 200,
+        headers: {
+          mobileappauthenticationtoken: 'auth-token-xyz',
+        },
+        data: {
+          mobileJsonObject: {
+            login: 'SUCCESS',
+            loginId: 'PES1UG20CS001',
+            name: 'Test Student',
+            accessToken: 'token-abc',
+          },
+        },
+      });
+
+      const client = new AcademyClient({ post: mockPost } as unknown as AxiosInstance);
+      await expect(client.login('PES1UG20CS001', 'password123')).rejects.toThrow(
+        'Incomplete session metadata from authentication'
+      );
     });
 
     it('throws AcademyAuthError on invalid credentials with custom or default message', async () => {
@@ -302,8 +318,17 @@ describe('PESU Academy Client & Profile Mapping', () => {
             login: 'SUCCESS',
             loginId: 'PES1UG20CS001',
             name: 'Test Student',
+            userId: '12345',
+            accessToken: 'token-abc',
           },
         }),
+      });
+      mockPost.mockResolvedValueOnce({
+        status: 200,
+        data: {
+          MESSAGE: 'SUCCESS',
+          STUDENT_PHOTO: { nameAsInSSLC: 'Test Student' },
+        },
       });
 
       const client = new AcademyClient({ post: mockPost } as unknown as AxiosInstance);
@@ -529,6 +554,33 @@ describe('PESU Academy Client & Profile Mapping', () => {
           data: {
             MESSAGE: 'SUCCESS',
             STUDENT_PHOTO: { loginId: 'PES1202000001' },
+          },
+        });
+
+      await expect(client.login('PES1UG20CS001', 'pass')).rejects.toThrow(
+        'Only student accounts are supported'
+      );
+
+      // Dispatcher returns SUCCESS and STUDENT_PHOTO with whitespace-only nameAsInSSLC
+      mockPost
+        .mockResolvedValueOnce({
+          status: 200,
+          headers: { mobileappauthenticationtoken: 'tok' },
+          data: {
+            mobileJsonObject: {
+              login: 'SUCCESS',
+              loginId: 'PES1UG20CS001',
+              name: 'Whitespace Student',
+              userId: '123',
+              accessToken: 'acc',
+            },
+          },
+        })
+        .mockResolvedValueOnce({
+          status: 200,
+          data: {
+            MESSAGE: 'SUCCESS',
+            STUDENT_PHOTO: { nameAsInSSLC: '   ' },
           },
         });
 

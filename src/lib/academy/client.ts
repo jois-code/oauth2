@@ -211,10 +211,11 @@ export class AcademyClient {
     const accessToken = accessRaw ? String(accessRaw) : null;
     const userId = mobileObj.userId ? String(mobileObj.userId) : null;
 
-    let profileDetails: Record<string, unknown> | null = null;
-    if (token && userId && accessToken) {
-      profileDetails = await this.fetchProfileDetails(token, accessToken);
+    if (!token || !userId || !accessToken) {
+      throw new AcademyAuthError('Incomplete session metadata from authentication');
     }
+
+    const profileDetails = await this.fetchProfileDetails(token, accessToken);
 
     const profile = mapProfile(mobileObj, username, profileDetails);
     const session: AcademySession = {
@@ -230,7 +231,7 @@ export class AcademyClient {
   private async fetchProfileDetails(
     token: string,
     accessToken: string
-  ): Promise<Record<string, unknown> | null> {
+  ): Promise<Record<string, unknown>> {
     const formData = new FormData();
     formData.append('action', ACTION);
     formData.append('mode', MODE);
