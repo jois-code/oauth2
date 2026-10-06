@@ -200,7 +200,10 @@ describe('PESU Academy Client & Profile Mapping', () => {
       });
       mockPost.mockResolvedValueOnce({
         status: 200,
-        data: { MESSAGE: 'SUCCESS' },
+        data: {
+          MESSAGE: 'SUCCESS',
+          STUDENT_PHOTO: { nameAsInSSLC: 'Test Student' },
+        },
       });
 
       const client = new AcademyClient({ post: mockPost } as unknown as AxiosInstance);
@@ -410,7 +413,7 @@ describe('PESU Academy Client & Profile Mapping', () => {
       mockPost.mockResolvedValueOnce({ status: 502, data: {} });
       await expect(client.login('PES1UG20CS001', 'pass')).rejects.toThrow('Authentication failed: HTTP 502');
 
-      // Dispatcher returns data with MESSAGE !== SUCCESS
+      // Dispatcher returns data with MESSAGE !== SUCCESS (non-student account)
       mockPost
         .mockResolvedValueOnce({
           status: 200,
@@ -430,8 +433,9 @@ describe('PESU Academy Client & Profile Mapping', () => {
           data: { MESSAGE: 'FAILURE_RECORD_NOT_FOUND' },
         });
 
-      const res = await client.login('PES1UG20CS001', 'pass');
-      expect(res.profile.name).toBe('Test Student');
+      await expect(client.login('PES1UG20CS001', 'pass')).rejects.toThrow(
+        'Only student accounts are supported'
+      );
 
       // Dispatcher post rejects with error, hitting outer catch block
       mockPost
@@ -501,8 +505,36 @@ describe('PESU Academy Client & Profile Mapping', () => {
           },
         });
 
-      const resNullPhoto = await client.login('PES1UG20CS001', 'pass');
-      expect(resNullPhoto.profile.name).toBe('Test Student');
+      await expect(client.login('PES1UG20CS001', 'pass')).rejects.toThrow(
+        'Only student accounts are supported'
+      );
+
+      // Dispatcher returns SUCCESS and STUDENT_PHOTO but nameAsInSSLC is missing
+      mockPost
+        .mockResolvedValueOnce({
+          status: 200,
+          headers: { mobileappauthenticationtoken: 'tok' },
+          data: {
+            mobileJsonObject: {
+              login: 'SUCCESS',
+              loginId: 'dora@pes.edu',
+              name: 'Dora the explorer',
+              userId: '123',
+              accessToken: 'acc',
+            },
+          },
+        })
+        .mockResolvedValueOnce({
+          status: 200,
+          data: {
+            MESSAGE: 'SUCCESS',
+            STUDENT_PHOTO: { loginId: 'PES1202000001' },
+          },
+        });
+
+      await expect(client.login('PES1UG20CS001', 'pass')).rejects.toThrow(
+        'Only student accounts are supported'
+      );
     });
 
     it('initializes with default CookieJar and AxiosInstance when no client is passed', () => {
