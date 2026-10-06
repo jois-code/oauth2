@@ -211,7 +211,7 @@ export class AcademyClient {
     const accessToken = accessRaw ? String(accessRaw) : null;
     const userId = mobileObj.userId ? String(mobileObj.userId) : null;
 
-    if (!token || !userId || !accessToken) {
+    if (!token || !accessToken) {
       throw new AcademyAuthError('Incomplete session metadata from authentication');
     }
 

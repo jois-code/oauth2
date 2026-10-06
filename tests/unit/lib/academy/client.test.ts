@@ -225,7 +225,7 @@ describe('PESU Academy Client & Profile Mapping', () => {
       );
     });
 
-    it('throws AcademyAuthError when response is missing userId', async () => {
+    it('authenticates and completes student verification even when userId is absent', async () => {
       const mockPost = vi.fn();
       mockPost.mockResolvedValueOnce({
         status: 200,
@@ -241,11 +241,19 @@ describe('PESU Academy Client & Profile Mapping', () => {
           },
         },
       });
+      mockPost.mockResolvedValueOnce({
+        status: 200,
+        data: {
+          MESSAGE: 'SUCCESS',
+          STUDENT_PHOTO: { nameAsInSSLC: 'Test Student' },
+        },
+      });
 
       const client = new AcademyClient({ post: mockPost } as unknown as AxiosInstance);
-      await expect(client.login('PES1UG20CS001', 'password123')).rejects.toThrow(
-        'Incomplete session metadata from authentication'
-      );
+      const result = await client.login('PES1UG20CS001', 'password123');
+      expect(result.session.userId).toBeNull();
+      expect(result.session.token).toBe('auth-token-xyz');
+      expect(result.profile.name).toBe('Test Student');
     });
 
     it('throws AcademyAuthError on invalid credentials with custom or default message', async () => {
