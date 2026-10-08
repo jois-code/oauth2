@@ -550,8 +550,8 @@ describe('PESU Academy Client & Profile Mapping', () => {
           data: {
             mobileJsonObject: {
               login: 'SUCCESS',
-              loginId: 'dora@pes.edu',
-              name: 'Dora the explorer',
+              loginId: 'janedoe@pes.edu',
+              name: 'Jan Doe',
               userId: '123',
               accessToken: 'acc',
             },
